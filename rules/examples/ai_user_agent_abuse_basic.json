@@ -1,0 +1,17 @@
+{
+  "id": "example.ai_user_agent_abuse.basic",
+  "type": "ai_user_agent_abuse",
+  "title": "Basic AI Endpoint Automation Signal",
+  "severity": "low",
+  "description": "A generic automation user agent accessed an AI-facing endpoint. This is a basic public-safe example only.",
+  "recommended_action": "Review request volume, authentication context, endpoint purpose, and rate-limit policy.",
+  "tags": ["ai", "web", "automation"],
+  "conditions": {
+    "event_type": "http",
+    "field_contains": {
+      "path": ["/chat", "/completion", "/prompt"],
+      "user_agent": ["curl", "python", "httpx"]
+    }
+  }
+}
+

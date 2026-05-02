@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://greynoc.example/schemas/detection-rule.schema.json",
+  "title": "GreyNOC Detection Rule",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["id", "type", "title", "severity", "description", "recommended_action", "conditions"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_.-]{2,127}$"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "port_scan",
+        "brute_force",
+        "malware_beaconing",
+        "suspicious_powershell",
+        "scan_finding",
+        "ai_user_agent_abuse"
+      ]
+    },
+    "title": { "type": "string", "minLength": 1 },
+    "severity": {
+      "type": "string",
+      "enum": ["info", "low", "medium", "high", "critical"]
+    },
+    "description": { "type": "string", "minLength": 1 },
+    "recommended_action": { "type": "string", "minLength": 1 },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "references": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "conditions": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "event_type": {
+          "oneOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }
+          ]
+        },
+        "message_contains": {
+          "oneOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }
+          ]
+        },
+        "field_equals": {
+          "type": "object",
+          "additionalProperties": { "type": ["string", "number", "boolean"] }
+        },
+        "field_contains": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }
+            ]
+          }
+        },
+        "regex": {
+          "oneOf": [
+            { "type": "string", "minLength": 1, "maxLength": 300 },
+            { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 300 }, "minItems": 1 }
+          ]
+        },
+        "min_count": { "type": "integer", "minimum": 1 },
+        "time_window_seconds": { "type": "integer", "minimum": 1 },
+        "source_fields": {
+          "oneOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }
+          ]
+        }
+      }
+    }
+  }
+}
+

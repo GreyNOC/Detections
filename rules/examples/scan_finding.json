@@ -1,0 +1,16 @@
+{
+  "id": "example.scan_finding.generic",
+  "type": "scan_finding",
+  "title": "High Severity Scanner Finding",
+  "severity": "high",
+  "description": "A scanner reported a high severity finding on an asset.",
+  "recommended_action": "Validate the finding, identify ownership, and schedule remediation based on exposure.",
+  "tags": ["vulnerability", "scanner"],
+  "conditions": {
+    "event_type": "scan_finding",
+    "field_equals": {
+      "severity": "high"
+    }
+  }
+}
+

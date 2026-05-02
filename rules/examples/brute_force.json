@@ -1,0 +1,17 @@
+{
+  "id": "example.brute_force.generic",
+  "type": "brute_force",
+  "title": "Repeated Failed Authentication",
+  "severity": "high",
+  "description": "Repeated authentication failures for a user or source may indicate password guessing.",
+  "recommended_action": "Review authentication logs, lockout status, MFA events, and source reputation.",
+  "tags": ["identity", "authentication"],
+  "conditions": {
+    "event_type": "authentication",
+    "message_contains": ["failed", "password"],
+    "min_count": 10,
+    "time_window_seconds": 600,
+    "source_fields": ["source_ip", "username"]
+  }
+}
+

@@ -1,0 +1,23 @@
+[
+  {
+    "id": "evt-001",
+    "time": "2026-01-01T12:00:00Z",
+    "src_ip": "10.0.0.10",
+    "dst_ip": "10.0.0.20",
+    "dport": "443",
+    "proto": "tcp",
+    "host": "workstation",
+    "user": "analyst",
+    "category": "network",
+    "level": "medium",
+    "message": "Outbound connection allowed"
+  },
+  {
+    "timestamp": "2026-01-01T12:05:00+00:00",
+    "event_type": "process",
+    "hostname": "endpoint",
+    "username": "operator",
+    "message": "powershell -EncodedCommand example"
+  }
+]
+

@@ -1,0 +1,15 @@
+{
+  "id": "example.suspicious_powershell.generic",
+  "type": "suspicious_powershell",
+  "title": "Suspicious PowerShell Invocation",
+  "severity": "medium",
+  "description": "PowerShell commands using encoded or hidden execution options may require investigation.",
+  "recommended_action": "Review command line, parent process, script block logs, and user context.",
+  "tags": ["endpoint", "windows", "execution"],
+  "conditions": {
+    "event_type": "process",
+    "message_contains": "powershell",
+    "regex": "(?i)\\b(encodedcommand|enc|hidden|bypass|downloadstring)\\b"
+  }
+}
+
