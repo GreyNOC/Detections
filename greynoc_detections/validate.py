@@ -14,6 +14,10 @@ from .exceptions import RuleValidationError
 
 MAX_REGEX_LENGTH = 300
 MAX_RULE_FILE_BYTES = 1_000_000
+MAX_TEXT_LENGTH = 2_000
+MAX_CONDITION_ITEMS = 100
+MAX_TAGS = 32
+MAX_REFERENCES = 32
 
 UNSAFE_REGEX_SIGNATURES = (
     re.compile(r"\([^)]*[+*][^)]*\)\s*[+*?]"),
@@ -21,6 +25,8 @@ UNSAFE_REGEX_SIGNATURES = (
     re.compile(r"(?:\.\+){2,}"),
     re.compile(r"\([^)]*\{\d+,?\d*\}[^)]*\)\s*[+*?{]"),
 )
+
+MITRE_ATTACK_ID = re.compile(r"^T\d{4}(?:\.\d{3})?$")
 
 
 def _rule_id(rule: dict[str, Any]) -> str:
@@ -37,7 +43,60 @@ def _require_text(rule: dict[str, Any], key: str) -> str:
     value = rule.get(key)
     if not isinstance(value, str) or not value.strip():
         raise RuleValidationError(f"Rule {_rule_id(rule)} requires non-empty string field '{key}'")
-    return value.strip()
+    clean = value.strip()
+    if len(clean) > MAX_TEXT_LENGTH:
+        raise RuleValidationError(f"Rule {_rule_id(rule)} field '{key}' is too long")
+    return clean
+
+
+def _string_or_string_list(value: Any, *, label: str, allow_empty: bool = False) -> list[str]:
+    values = [value] if isinstance(value, str) else value
+    if not isinstance(values, list):
+        raise RuleValidationError(f"{label} must be a string or string list")
+    if not values and not allow_empty:
+        raise RuleValidationError(f"{label} must not be empty")
+    if len(values) > MAX_CONDITION_ITEMS:
+        raise RuleValidationError(f"{label} has too many values")
+    cleaned: list[str] = []
+    for item in values:
+        if not isinstance(item, str) or not item.strip():
+            raise RuleValidationError(f"{label} must contain only non-empty strings")
+        item_clean = item.strip()
+        if len(item_clean) > MAX_TEXT_LENGTH:
+            raise RuleValidationError(f"{label} contains a value that is too long")
+        cleaned.append(item_clean)
+    return cleaned
+
+
+def _condition_scalar(value: Any, *, label: str) -> None:
+    if isinstance(value, bool) or isinstance(value, int) or isinstance(value, float):
+        return
+    if isinstance(value, str) and value.strip() and len(value.strip()) <= MAX_TEXT_LENGTH:
+        return
+    raise RuleValidationError(f"{label} must be a non-empty string, number, boolean, or list of those values")
+
+
+def _validate_field_map(rule_id: str, conditions: dict[str, Any], key: str) -> None:
+    if key not in conditions:
+        return
+    value = conditions[key]
+    if not isinstance(value, dict) or not value:
+        raise RuleValidationError(f"Rule {rule_id} condition '{key}' must be a non-empty object")
+    if len(value) > MAX_CONDITION_ITEMS:
+        raise RuleValidationError(f"Rule {rule_id} condition '{key}' has too many fields")
+    for field_name, expected in value.items():
+        if not isinstance(field_name, str) or not field_name.strip():
+            raise RuleValidationError(f"Rule {rule_id} condition '{key}' contains an invalid field name")
+        label = f"Rule {rule_id} condition '{key}.{field_name}'"
+        if isinstance(expected, list):
+            if not expected:
+                raise RuleValidationError(f"{label} must not be an empty list")
+            if len(expected) > MAX_CONDITION_ITEMS:
+                raise RuleValidationError(f"{label} has too many values")
+            for item in expected:
+                _condition_scalar(item, label=label)
+        else:
+            _condition_scalar(expected, label=label)
 
 
 def _validate_regex(rule_id: str, pattern: str) -> None:
@@ -69,6 +128,8 @@ def _validate_conditions(rule: dict[str, Any]) -> dict[str, Any]:
             regexes = [regexes]
         if not isinstance(regexes, list) or not regexes:
             raise RuleValidationError(f"Rule {rule_id} field 'regex' must be a string or non-empty list")
+        if len(regexes) > MAX_CONDITION_ITEMS:
+            raise RuleValidationError(f"Rule {rule_id} field 'regex' has too many patterns")
         for pattern in regexes:
             _validate_regex(rule_id, pattern)
 
@@ -79,18 +140,44 @@ def _validate_conditions(rule: dict[str, Any]) -> dict[str, Any]:
                 raise RuleValidationError(f"Rule {rule_id} condition '{integer_key}' must be a positive integer")
 
     for object_key in ("field_equals", "field_contains"):
-        if object_key in conditions and not isinstance(conditions[object_key], dict):
-            raise RuleValidationError(f"Rule {rule_id} condition '{object_key}' must be an object")
+        _validate_field_map(rule_id, conditions, object_key)
 
     for list_key in ("message_contains", "event_type", "source_fields"):
         if list_key in conditions:
-            value = conditions[list_key]
-            if isinstance(value, str):
-                continue
-            if not isinstance(value, list) or not all(isinstance(item, str) and item.strip() for item in value):
-                raise RuleValidationError(f"Rule {rule_id} condition '{list_key}' must be a string or string list")
+            _string_or_string_list(conditions[list_key], label=f"Rule {rule_id} condition '{list_key}'")
 
     return conditions
+
+
+def _validate_metadata(rule: dict[str, Any], rule_id: str) -> None:
+    tags = rule.get("tags", [])
+    if tags is not None:
+        values = _string_or_string_list(tags, label=f"Rule {rule_id} field 'tags'", allow_empty=True)
+        if len(values) > MAX_TAGS:
+            raise RuleValidationError(f"Rule {rule_id} field 'tags' has too many values")
+
+    references = rule.get("references", [])
+    if references is not None:
+        values = _string_or_string_list(references, label=f"Rule {rule_id} field 'references'", allow_empty=True)
+        if len(values) > MAX_REFERENCES:
+            raise RuleValidationError(f"Rule {rule_id} field 'references' has too many values")
+
+    false_positives = rule.get("false_positives", [])
+    if false_positives is not None:
+        _string_or_string_list(false_positives, label=f"Rule {rule_id} field 'false_positives'", allow_empty=True)
+
+    attack_ids = rule.get("mitre_attack", [])
+    if attack_ids is not None:
+        values = _string_or_string_list(attack_ids, label=f"Rule {rule_id} field 'mitre_attack'", allow_empty=True)
+        for attack_id in values:
+            if not MITRE_ATTACK_ID.fullmatch(attack_id):
+                raise RuleValidationError(f"Rule {rule_id} has invalid MITRE ATT&CK id '{attack_id}'")
+
+    confidence = rule.get("confidence")
+    if confidence is not None and (
+        not isinstance(confidence, (int, float)) or isinstance(confidence, bool) or confidence < 0 or confidence > 100
+    ):
+        raise RuleValidationError(f"Rule {rule_id} field 'confidence' must be a number from 0 to 100")
 
 
 def validate_detection_rule(rule: dict[str, Any]) -> dict[str, Any]:
@@ -117,27 +204,28 @@ def validate_detection_rule(rule: dict[str, Any]) -> dict[str, Any]:
     _require_text(rule, "description")
     _require_text(rule, "recommended_action")
     _validate_conditions(rule)
-
-    tags = rule.get("tags", [])
-    if tags is not None and (not isinstance(tags, list) or not all(isinstance(item, str) for item in tags)):
-        raise RuleValidationError(f"Rule {rule_id} field 'tags' must be a list of strings")
-
-    references = rule.get("references", [])
-    if references is not None and (
-        not isinstance(references, list) or not all(isinstance(item, str) for item in references)
-    ):
-        raise RuleValidationError(f"Rule {rule_id} field 'references' must be a list of strings")
+    _validate_metadata(rule, rule_id)
 
     return rule
 
 
 def _json_files(paths: Iterable[Path]) -> list[Path]:
     files: list[Path] = []
+    missing: list[Path] = []
+    unsupported: list[Path] = []
     for path in paths:
-        if path.is_dir():
+        if not path.exists():
+            missing.append(path)
+        elif path.is_dir():
             files.extend(sorted(path.rglob("*.json")))
         elif path.suffix.lower() == ".json":
             files.append(path)
+        else:
+            unsupported.append(path)
+    if missing:
+        raise RuleValidationError("Missing path(s): " + ", ".join(str(path) for path in missing))
+    if unsupported:
+        raise RuleValidationError("Unsupported non-JSON path(s): " + ", ".join(str(path) for path in unsupported))
     return sorted(dict.fromkeys(files))
 
 
@@ -151,58 +239,103 @@ def _rules_from_payload(payload: Any, source: Path) -> list[dict[str, Any]]:
     raise RuleValidationError(f"{source} must contain a rule object, rule list, or {{'rules': [...]}}")
 
 
+def _load_rule_file(file_path: Path) -> list[dict[str, Any]]:
+    if file_path.stat().st_size > MAX_RULE_FILE_BYTES:
+        raise RuleValidationError(f"{file_path} is too large")
+    try:
+        payload = json.loads(file_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise RuleValidationError(f"{file_path} is not valid JSON: {exc}") from exc
+    return _rules_from_payload(payload, file_path)
+
+
 def load_detection_rules(path: str | Path) -> list[dict[str, Any]]:
     """Recursively load and validate detection rules from a file or directory."""
 
-    root = Path(path)
-    files = _json_files([root])
+    files = _json_files([Path(path)])
     if not files:
-        raise RuleValidationError(f"No JSON rule files found at {root}")
+        raise RuleValidationError(f"No JSON rule files found at {path}")
 
     rules: list[dict[str, Any]] = []
+    seen_ids: dict[str, Path] = {}
     for file_path in files:
-        if file_path.stat().st_size > MAX_RULE_FILE_BYTES:
-            raise RuleValidationError(f"{file_path} is too large")
-        try:
-            payload = json.loads(file_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
-            raise RuleValidationError(f"{file_path} is not valid JSON: {exc}") from exc
-        for rule in _rules_from_payload(payload, file_path):
-            rules.append(validate_detection_rule(rule))
+        for rule in _load_rule_file(file_path):
+            validated = validate_detection_rule(rule)
+            rule_id = str(validated["id"])
+            if rule_id in seen_ids:
+                raise RuleValidationError(f"Duplicate rule id '{rule_id}' in {file_path} and {seen_ids[rule_id]}")
+            seen_ids[rule_id] = file_path
+            rules.append(validated)
     return rules
 
 
-def _validate_cli(paths: list[Path]) -> int:
-    files = _json_files(paths)
+def _validate_cli(paths: list[Path], *, output_format: str = "text") -> int:
+    results: list[dict[str, Any]] = []
+    try:
+        files = _json_files(paths)
+    except RuleValidationError as exc:
+        if output_format == "json":
+            print(json.dumps({"ok": False, "errors": [str(exc)], "files": [], "rules_validated": 0}, indent=2, sort_keys=True))
+        else:
+            print(f"FAIL {exc}", file=sys.stderr)
+        return 1
     if not files:
-        print("FAIL no JSON files found", file=sys.stderr)
+        if output_format == "json":
+            print(json.dumps({"ok": False, "errors": ["no JSON files found"], "files": [], "rules_validated": 0}, indent=2, sort_keys=True))
+        else:
+            print("FAIL no JSON files found", file=sys.stderr)
         return 1
 
     failures = 0
     total = 0
+    seen_ids: dict[str, Path] = {}
     for file_path in files:
+        file_result: dict[str, Any] = {"path": str(file_path), "ok": True, "rules": 0, "errors": []}
         try:
-            payload = json.loads(file_path.read_text(encoding="utf-8"))
-            rules = _rules_from_payload(payload, file_path)
+            rules = _load_rule_file(file_path)
             for rule in rules:
+                validated = validate_detection_rule(rule)
                 total += 1
-                validate_detection_rule(rule)
-            print(f"PASS {file_path} ({len(rules)} rule{'s' if len(rules) != 1 else ''})")
+                rule_id = str(validated["id"])
+                if rule_id in seen_ids:
+                    raise RuleValidationError(f"Duplicate rule id '{rule_id}' also found in {seen_ids[rule_id]}")
+                seen_ids[rule_id] = file_path
+            file_result["rules"] = len(rules)
+            if output_format == "text":
+                print(f"PASS {file_path} ({len(rules)} rule{'s' if len(rules) != 1 else ''})")
         except (OSError, RuleValidationError, json.JSONDecodeError) as exc:
             failures += 1
-            print(f"FAIL {file_path}: {exc}", file=sys.stderr)
+            file_result["ok"] = False
+            file_result["errors"].append(str(exc))
+            if output_format == "text":
+                print(f"FAIL {file_path}: {exc}", file=sys.stderr)
+        results.append(file_result)
 
-    print(f"Validated {total} rule{'s' if total != 1 else ''}; {failures} file failure{'s' if failures != 1 else ''}.")
+    if output_format == "json":
+        print(
+            json.dumps(
+                {
+                    "ok": failures == 0,
+                    "files": results,
+                    "rules_validated": total,
+                    "file_failures": failures,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        print(f"Validated {total} rule{'s' if total != 1 else ''}; {failures} file failure{'s' if failures != 1 else ''}.")
     return 1 if failures else 0
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Validate GreyNOC detection rule JSON files.")
     parser.add_argument("paths", nargs="+", type=Path, help="Rule JSON files or directories to validate.")
+    parser.add_argument("--format", choices=("text", "json"), default="text", help="Validation output format.")
     args = parser.parse_args(argv)
-    return _validate_cli(args.paths)
+    return _validate_cli(args.paths, output_format=args.format)
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
