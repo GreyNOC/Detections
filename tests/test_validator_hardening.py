@@ -50,6 +50,17 @@ def test_validate_rejects_bad_field_contains_values():
         validate_detection_rule(rule)
 
 
+def test_validate_rejects_numeric_field_contains():
+    rule = _base_rule(conditions={"event_type": "http", "field_contains": {"path": 123}})
+    with pytest.raises(RuleValidationError, match="field_contains.path"):
+        validate_detection_rule(rule)
+
+
+def test_validate_allows_numeric_field_equals():
+    rule = _base_rule(conditions={"event_type": "network", "field_equals": {"destination_port": 443}})
+    assert validate_detection_rule(rule)["id"] == "example.test.rule"
+
+
 def test_load_detection_rules_rejects_duplicate_ids(tmp_path: Path):
     first = _base_rule(id="example.duplicate.rule")
     second = _base_rule(id="example.duplicate.rule", title="Duplicate")
@@ -66,6 +77,19 @@ def test_cli_json_output_reports_success(tmp_path: Path, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
     assert payload["rules_validated"] == 1
+
+
+def test_cli_json_output_reports_duplicate_as_one_validated_rule(tmp_path: Path, capsys):
+    first = _base_rule(id="example.duplicate.rule")
+    second = _base_rule(id="example.duplicate.rule", title="Duplicate")
+    (tmp_path / "a.json").write_text(json.dumps(first), encoding="utf-8")
+    (tmp_path / "b.json").write_text(json.dumps(second), encoding="utf-8")
+
+    assert main(["--format", "json", str(tmp_path)]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["rules_validated"] == 1
+    assert payload["file_failures"] == 1
 
 
 def test_cli_json_output_reports_missing_path(capsys):
