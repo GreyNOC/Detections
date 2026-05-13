@@ -76,7 +76,8 @@ def _condition_scalar(value: Any, *, label: str) -> None:
     raise RuleValidationError(f"{label} must be a non-empty string, number, boolean, or list of those values")
 
 
-def _validate_field_map(rule_id: str, conditions: dict[str, Any], key: str) -> None:
+def _validate_field_equals(rule_id: str, conditions: dict[str, Any]) -> None:
+    key = "field_equals"
     if key not in conditions:
         return
     value = conditions[key]
@@ -97,6 +98,21 @@ def _validate_field_map(rule_id: str, conditions: dict[str, Any], key: str) -> N
                 _condition_scalar(item, label=label)
         else:
             _condition_scalar(expected, label=label)
+
+
+def _validate_field_contains(rule_id: str, conditions: dict[str, Any]) -> None:
+    key = "field_contains"
+    if key not in conditions:
+        return
+    value = conditions[key]
+    if not isinstance(value, dict) or not value:
+        raise RuleValidationError(f"Rule {rule_id} condition '{key}' must be a non-empty object")
+    if len(value) > MAX_CONDITION_ITEMS:
+        raise RuleValidationError(f"Rule {rule_id} condition '{key}' has too many fields")
+    for field_name, expected in value.items():
+        if not isinstance(field_name, str) or not field_name.strip():
+            raise RuleValidationError(f"Rule {rule_id} condition '{key}' contains an invalid field name")
+        _string_or_string_list(expected, label=f"Rule {rule_id} condition '{key}.{field_name}'")
 
 
 def _validate_regex(rule_id: str, pattern: str) -> None:
@@ -139,8 +155,8 @@ def _validate_conditions(rule: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(value, int) or value <= 0:
                 raise RuleValidationError(f"Rule {rule_id} condition '{integer_key}' must be a positive integer")
 
-    for object_key in ("field_equals", "field_contains"):
-        _validate_field_map(rule_id, conditions, object_key)
+    _validate_field_equals(rule_id, conditions)
+    _validate_field_contains(rule_id, conditions)
 
     for list_key in ("message_contains", "event_type", "source_fields"):
         if list_key in conditions:
@@ -295,11 +311,11 @@ def _validate_cli(paths: list[Path], *, output_format: str = "text") -> int:
             rules = _load_rule_file(file_path)
             for rule in rules:
                 validated = validate_detection_rule(rule)
-                total += 1
                 rule_id = str(validated["id"])
                 if rule_id in seen_ids:
                     raise RuleValidationError(f"Duplicate rule id '{rule_id}' also found in {seen_ids[rule_id]}")
                 seen_ids[rule_id] = file_path
+                total += 1
             file_result["rules"] = len(rules)
             if output_format == "text":
                 print(f"PASS {file_path} ({len(rules)} rule{'s' if len(rules) != 1 else ''})")
