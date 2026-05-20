@@ -2,6 +2,13 @@
 
 Thanks for helping improve GreyNOC Detections.
 
+## Community Access and Approval
+
+- Stars, watches, forks, comments, issues, discussions, and pull requests are welcome when GitHub permissions allow them.
+- Direct push access is not granted through comments, stars, forks, or pull requests.
+- A change may be merged only after approval by @GreyNOC or by a maintainer explicitly trusted by @GreyNOC. Codex-assisted review may be used when GreyNOC authorizes it.
+- Security-sensitive reports should follow SECURITY.md instead of being posted publicly.
+
 ## Submitting Rules
 
 New rules should be generic, defensive, and public-safe.
@@ -35,4 +42,4 @@ Do not add:
 - Private AI/prompt-abuse token lists.
 - Dedupe store integrations.
 - Customer-specific telemetry or identifiers.
-
+- Secrets, credentials, private data, malware, backdoors, destructive payloads, or code intended to harm systems.
